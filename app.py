@@ -8,8 +8,9 @@ from models import User
 from database import get_db_connection
 # Importar blueprints
 from routes.auth import auth_bp
-from routes.protected import protected_bp
 from routes.cliente import cliente_bp
+# Asegúrate de eliminar 'protected_bp' si no lo estás utilizando
+# from routes.protected import protected_bp
 
 from config import Config  # Importar la configuración
 
@@ -41,8 +42,9 @@ def load_user(user_id):
 
 # Registrar blueprints
 app.register_blueprint(auth_bp)
-app.register_blueprint(protected_bp)
 app.register_blueprint(cliente_bp)
+# Registra protected_bp si lo estás utilizando
+# app.register_blueprint(protected_bp)
 
 # Rutas para servir el frontend
 @app.route('/', defaults={'path': ''})

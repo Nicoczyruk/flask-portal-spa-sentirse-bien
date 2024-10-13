@@ -59,3 +59,59 @@ def auth_status():
         return jsonify({'authenticated': True}), 200
     else:
         return jsonify({'authenticated': False}), 401
+
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    nombre = data.get('nombre')
+    apellido = data.get('apellido')
+    email = data.get('email')
+    telefono = data.get('telefono')
+    direccion = data.get('direccion')
+    nombre_usuario = data.get('nombre_usuario')
+    password = data.get('password')
+    rol = data.get('rol', 'Cliente')  # Predeterminado a Cliente
+
+    # Validar campos requeridos
+    if not all([nombre, apellido, email, nombre_usuario, password]):
+        return jsonify({'error': 'Faltan campos requeridos'}), 400
+
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            # Verificar si el email o nombre_usuario ya existen
+            cursor.execute("SELECT * FROM usuarios WHERE email = ? OR nombre_usuario = ?", (email, nombre_usuario))
+            existing_user = cursor.fetchone()
+            if existing_user:
+                return jsonify({'error': 'El email o nombre de usuario ya están en uso'}), 400
+
+            # Insertar en clientes y obtener id_cliente usando OUTPUT
+            cursor.execute("""
+                INSERT INTO [dbo].[clientes] (nombre, apellido, email, telefono, direccion)
+                OUTPUT INSERTED.id_cliente
+                VALUES (?, ?, ?, ?, ?)
+            """, (nombre, apellido, email, telefono, direccion))
+            id_cliente = cursor.fetchone()[0]
+
+            if not id_cliente:
+                raise Exception("No se pudo obtener id_cliente.")
+
+            # Hashear la contraseña
+            hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+            # Insertar en usuarios
+            cursor.execute("""
+                INSERT INTO [dbo].[usuarios] (id_cliente, nombre_usuario, password, email, rol)
+                VALUES (?, ?, ?, ?, ?)
+            """, (id_cliente, nombre_usuario, hashed_password, email, rol))
+            conn.commit()
+
+            return jsonify({"message": "Usuario registrado exitosamente"}), 201
+        except Exception as e:
+            conn.rollback()
+            return jsonify({'error': 'Error en el registro', 'details': str(e)}), 500
+        finally:
+            conn.close()
+    else:
+        return jsonify({'error': 'Error al conectar con la base de datos'}), 500
