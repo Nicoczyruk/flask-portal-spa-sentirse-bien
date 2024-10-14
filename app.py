@@ -9,8 +9,8 @@ from database import get_db_connection
 # Importar blueprints
 from routes.auth import auth_bp
 from routes.cliente import cliente_bp
-# Asegúrate de eliminar 'protected_bp' si no lo estás utilizando
-# from routes.protected import protected_bp
+from routes.admin import admin_bp
+from routes.reservas import reservas_bp
 
 from config import Config  # Importar la configuración
 
@@ -32,17 +32,20 @@ def load_user(user_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
-        query = "SELECT id_usuario, email FROM usuarios WHERE id_usuario = ?"
+        query = "SELECT id_usuario, email, rol, id_cliente FROM usuarios WHERE id_usuario = ?"
         cursor.execute(query, (user_id,))
         result = cursor.fetchone()
         conn.close()
         if result:
-            return User(id_usuario=result.id_usuario, email=result.email)
+            print("Usuario cargado con rol:", result.rol)  # Verifica si el rol se está obteniendo correctamente
+            return User(id_usuario=result.id_usuario, email=result.email, rol=result.rol, id_cliente=result.id_cliente)
     return None
 
 # Registrar blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(cliente_bp)
+app.register_blueprint(admin_bp)
+app.register_blueprint(reservas_bp)
 # Registra protected_bp si lo estás utilizando
 # app.register_blueprint(protected_bp)
 
