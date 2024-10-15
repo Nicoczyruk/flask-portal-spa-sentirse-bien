@@ -11,6 +11,7 @@ from routes.auth import auth_bp
 from routes.cliente import cliente_bp
 from routes.admin import admin_bp
 from routes.reservas import reservas_bp
+from routes.informes import informes_bp
 
 from config import Config  # Importar la configuración
 
@@ -46,8 +47,8 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(cliente_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(reservas_bp)
-# Registra protected_bp si lo estás utilizando
-# app.register_blueprint(protected_bp)
+app.register_blueprint(informes_bp)
+
 
 # Rutas para servir el frontend
 @app.route('/', defaults={'path': ''})
