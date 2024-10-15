@@ -1,5 +1,6 @@
 bcrypt==4.2.0
 blinker==1.8.2
+chardet==5.2.0
 click==8.1.7
 colorama==0.4.6
 Flask==3.0.3
@@ -10,6 +11,8 @@ itsdangerous==2.2.0
 Jinja2==3.1.4
 MarkupSafe==3.0.1
 packaging==24.1
+pillow==10.4.0
 pyodbc==5.1.0
 python-dotenv==1.0.1
+reportlab==4.2.5
 Werkzeug==3.0.4
