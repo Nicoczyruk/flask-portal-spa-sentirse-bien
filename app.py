@@ -12,6 +12,8 @@ from routes.cliente import cliente_bp
 from routes.admin import admin_bp
 from routes.reservas import reservas_bp
 from routes.informes import informes_bp
+from routes.panelEmpleado import panel_empleado_bp
+from routes.panelprofesional import panel_profesional_bp
 
 from config import Config  # Importar la configuración
 
@@ -48,7 +50,8 @@ app.register_blueprint(cliente_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(reservas_bp)
 app.register_blueprint(informes_bp)
-
+app.register_blueprint(panel_empleado_bp)
+app.register_blueprint(panel_profesional_bp)
 
 # Rutas para servir el frontend
 @app.route('/', defaults={'path': ''})
