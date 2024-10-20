@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from database import get_db_connection
 from datetime import datetime, timedelta
+from random import choice
 
 reservas_bp = Blueprint('reservas_bp', __name__, url_prefix='/api/reservas')
 
@@ -75,12 +76,12 @@ def crear_reserva():
                 return jsonify({'error': 'La hora seleccionada ya está reservada.'}), 400
             
             # Asignar un profesional disponible (seleccionamos el primero disponible)
-            cursor.execute("SELECT TOP 1 id_profesional FROM profesionales")
-            profesional = cursor.fetchone()
-            if not profesional:
+            cursor.execute("SELECT id_profesional FROM profesionales")
+            profesionales = cursor.fetchall()
+            if not profesionales:
                 conn.close()
                 return jsonify({'error': 'No hay profesionales disponibles.'}), 400
-            id_profesional = profesional[0]
+            id_profesional = choice([p[0] for p in profesionales])
             
             # Insertar la nueva reserva en la tabla turnos y obtener el id_turno generado
             query_insertar_turno = """
@@ -139,19 +140,72 @@ def historial_reservas():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
-        query = """
+
+        # Eliminar todas las dependencias relacionadas con reservas no pagadas antes de las 48 horas
+        query_eliminar_turno_servicio = """
+            DELETE FROM turno_servicio 
+            WHERE id_turno IN (
+                SELECT t.id_turno
+                FROM turnos t
+                LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                WHERE DATEADD(SECOND, 
+                            DATEDIFF(SECOND, 0, t.hora), 
+                            CAST(t.fecha AS DATETIME)
+                    ) < DATEADD(HOUR, -48, GETDATE())
+                AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
+            )
+        """
+        cursor.execute(query_eliminar_turno_servicio)
+
+        query_eliminar_pagos = """
+            DELETE FROM pagos 
+            WHERE id_turno IN (
+                SELECT t.id_turno
+                FROM turnos t
+                LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                WHERE DATEADD(SECOND, 
+                            DATEDIFF(SECOND, 0, t.hora), 
+                            CAST(t.fecha AS DATETIME)
+                    ) < DATEADD(HOUR, -48, GETDATE())
+                AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
+            )
+        """
+        cursor.execute(query_eliminar_pagos)
+
+        query_eliminar_turnos = """
+            DELETE FROM turnos 
+            WHERE id_turno IN (
+                SELECT t.id_turno
+                FROM turnos t
+                LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                WHERE DATEADD(SECOND, 
+                            DATEDIFF(SECOND, 0, t.hora), 
+                            CAST(t.fecha AS DATETIME)
+                    ) < DATEADD(HOUR, -48, GETDATE())
+                AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
+            )
+        """
+        cursor.execute(query_eliminar_turnos)
+
+        conn.commit()
+
+        # Actualizar consulta para incluir el nombre del servicio
+        query_historial = """
             SELECT 
                 t.id_turno,
                 t.fecha,
                 t.hora,
                 t.estado,
-                p.metodo_pago
+                p.metodo_pago,
+                s.nombre AS servicio
             FROM turnos t
             JOIN pagos p ON t.id_turno = p.id_turno
+            JOIN turno_servicio ts ON t.id_turno = ts.id_turno
+            JOIN servicios s ON ts.id_servicio = s.id_servicio
             WHERE t.id_cliente = ?
             ORDER BY t.fecha DESC, t.hora DESC
         """
-        cursor.execute(query, (current_user.id_cliente,))
+        cursor.execute(query_historial, (current_user.id_cliente,))
         reservas = cursor.fetchall()
         conn.close()
         
@@ -163,7 +217,8 @@ def historial_reservas():
                 'fecha': reserva.fecha.strftime('%Y-%m-%d'),
                 'hora': reserva.hora.strftime('%H:%M'),
                 'estado': reserva.estado,
-                'pago': pago_estado
+                'pago': pago_estado,
+                'servicio': reserva.servicio
             })
         
         return jsonify({'historial': historial}), 200
