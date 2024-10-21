@@ -141,7 +141,7 @@ def historial_reservas():
     if conn:
         cursor = conn.cursor()
 
-        # Eliminar todas las dependencias relacionadas con reservas no pagadas antes de las 48 horas
+        # Eliminar dependencias de reservas no pagadas antes de 48 horas
         query_eliminar_turno_servicio = """
             DELETE FROM turno_servicio 
             WHERE id_turno IN (
@@ -187,9 +187,24 @@ def historial_reservas():
         """
         cursor.execute(query_eliminar_turnos)
 
+        # **Nueva funcionalidad:** Actualizar turnos pagados cuya fecha ya pasó
+        query_actualizar_turnos_realizados = """
+            UPDATE turnos
+            SET estado = 'Realizado'
+            WHERE id_turno IN (
+                SELECT t.id_turno
+                FROM turnos t
+                JOIN pagos p ON t.id_turno = p.id_turno
+                WHERE t.id_cliente = ?
+                AND p.metodo_pago != 'Pendiente'
+                AND CAST(t.fecha AS DATETIME) < GETDATE()
+            )
+        """
+        cursor.execute(query_actualizar_turnos_realizados, (current_user.id_cliente,))
+
         conn.commit()
 
-        # Actualizar consulta para incluir el nombre del servicio
+        # Consulta del historial actualizado
         query_historial = """
             SELECT 
                 t.id_turno,
@@ -208,7 +223,8 @@ def historial_reservas():
         cursor.execute(query_historial, (current_user.id_cliente,))
         reservas = cursor.fetchall()
         conn.close()
-        
+
+        # Formatear el historial para la respuesta JSON
         historial = []
         for reserva in reservas:
             pago_estado = 'Pagado' if reserva.metodo_pago.lower() != 'pendiente' else 'Pendiente'
@@ -220,7 +236,9 @@ def historial_reservas():
                 'pago': pago_estado,
                 'servicio': reserva.servicio
             })
-        
+
         return jsonify({'historial': historial}), 200
+
     else:
         return jsonify({'error': 'Error de conexión a la base de datos.'}), 500
+

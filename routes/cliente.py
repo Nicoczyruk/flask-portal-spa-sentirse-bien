@@ -274,7 +274,6 @@ def obtener_pagos_realizados():
     else:
         return jsonify({'error': 'Error al conectar con la base de datos'}), 500
     
-# Generar factura
 @cliente_bp.route('/factura/<int:id_factura>', methods=['GET'])
 @login_required
 def generar_factura(id_factura):
@@ -282,7 +281,9 @@ def generar_factura(id_factura):
     if conn:
         cursor = conn.cursor()
         query = """
-            SELECT f.id_factura, f.fecha_emision, t.fecha AS fecha_servicio, t.hora, s.nombre AS servicio, f.total, c.nombre AS cliente_nombre, c.apellido AS cliente_apellido, p.metodo_pago
+            SELECT f.id_factura, f.fecha_emision, t.fecha AS fecha_servicio, t.hora, 
+                   s.nombre AS servicio, f.total, c.nombre AS cliente_nombre, 
+                   c.apellido AS cliente_apellido, p.metodo_pago
             FROM facturas f
             JOIN pagos p ON f.id_pago = p.id_pago
             JOIN turnos t ON p.id_turno = t.id_turno
@@ -309,7 +310,6 @@ def generar_factura(id_factura):
         doc = SimpleDocTemplate(filepath, pagesize=letter)
         styles = getSampleStyleSheet()
 
-        # Ajustamos el estilo general para una fuente más grande en el documento general
         styles['Normal'].fontSize = 12
         styles['Title'].fontSize = 16
 
@@ -340,7 +340,6 @@ def generar_factura(id_factura):
         cliente_info = Paragraph(f"<b>Cliente:</b> {cliente_nombre} {cliente_apellido}", styles['Normal'])
         elements.append(cliente_info)
 
-        # Información adicional (fecha de emisión, método de pago)
         fecha_info = Paragraph(f"<b>Fecha de emisión:</b> {fecha_emision.strftime('%Y-%m-%d')}", styles['Normal'])
         metodo_pago_info = Paragraph(f"<b>Método de pago:</b> {metodo_pago.capitalize()}", styles['Normal'])
         elements.append(fecha_info)
@@ -354,39 +353,32 @@ def generar_factura(id_factura):
             [servicio, fecha_servicio.strftime('%Y-%m-%d'), hora_servicio.strftime('%H:%M'), '1', f"${total:.2f}", f"${total:.2f}"]
         ]
 
-        # Ajustamos el tamaño de la fuente solo dentro de las tablas para que los textos entren
         table = Table(data, colWidths=[150, 90, 50, 60, 80, 80])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#4A90E2")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),  # Reducimos el tamaño de la fuente en la tabla
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ]))
 
         elements.append(table)
-
         elements.append(Spacer(1, 12))
 
-        # Resumen del pago
-        subtotal = Decimal(total)
-        impuestos = subtotal * Decimal('0.10')  # Corrección para usar Decimal en vez de float
-        total_a_pagar = subtotal + impuestos
-
+        # Resumen del pago (eliminamos impuestos)
         resumen_data = [
-            ['Subtotal:', f"${subtotal:.2f}"],
-            ['Impuestos (10%):', f"${impuestos:.2f}"],
-            ['Total a pagar:', f"${total_a_pagar:.2f}"]
+            ['Subtotal:', f"${total:.2f}"],
+            ['Total Pagado:', f"${total:.2f}"]
         ]
 
         resumen_table = Table(resumen_data, colWidths=[400, 100])
         resumen_table.setStyle(TableStyle([
             ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 12),  # Fuente normal para el resumen
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
         elements.append(resumen_table)
@@ -403,6 +395,7 @@ def generar_factura(id_factura):
         return send_file(filepath, as_attachment=True)
     else:
         return jsonify({'error': 'Error de conexión a la base de datos.'}), 500
+
     
 # Realizar pagos de todos los pendientes
 @cliente_bp.route('/pagar-todos', methods=['POST'])
@@ -453,32 +446,38 @@ def pagar_todos():
                 query_actualizar_pago = "UPDATE pagos SET metodo_pago = ? WHERE id_pago = ?"
                 cursor.execute(query_actualizar_pago, (metodo_pago, id_pago,))
 
-                # Insertar una factura para cada pago
+                # Insertar una factura para cada pago y recuperar el id_factura generado
                 query_insertar_factura = """
                     INSERT INTO facturas (id_cliente, id_pago, total)
+                    OUTPUT INSERTED.id_factura
                     VALUES (?, ?, ?)
                 """
                 cursor.execute(query_insertar_factura, (id_cliente, id_pago, monto))
+                id_factura = cursor.fetchone()[0]  # Recupera el id_factura generado
 
-                # Obtener el id_factura generado
-                id_factura = cursor.lastrowid
-                # Aquí puedes obtener más detalles de cada pago si es necesario
-                # Por simplicidad, se asume que los detalles se obtienen posteriormente
+                # Agregar detalles de la factura a la lista generada
                 facturas_generadas.append({
                     'id_factura': id_factura,
-                    'servicio': 'Servicio Desconocido',  # Puedes ajustar esto según tu lógica
-                    'fecha': 'Fecha Desconocida',       # Puedes ajustar esto según tu lógica
-                    'hora': 'Hora Desconocida',         # Puedes ajustar esto según tu lógica
+                    'servicio': 'Servicio Desconocido',  # Ajusta según tu lógica
+                    'fecha': 'Fecha Desconocida',       # Ajusta según tu lógica
+                    'hora': 'Hora Desconocida',         # Ajusta según tu lógica
                     'total': monto
                 })
 
-            conn.commit()
+            conn.commit()  # Confirmar los cambios
+            cursor.close()
             conn.close()
-            return jsonify({'message': 'Todos los pagos realizados y facturas generadas exitosamente.', 'facturas': facturas_generadas}), 200
+            return jsonify({
+                'message': 'Todos los pagos realizados y facturas generadas exitosamente.',
+                'facturas': facturas_generadas
+            }), 200
+
         except Exception as e:
-            conn.rollback()
+            conn.rollback()  # Revertir cambios en caso de error
+            cursor.close()
             conn.close()
             print(f"Error en pagar_todos: {e}")  # Para depuración
             return jsonify({'error': 'Error al procesar los pagos.'}), 500
+
     else:
         return jsonify({'error': 'Error al conectar con la base de datos'}), 500
