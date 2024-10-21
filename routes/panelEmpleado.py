@@ -21,7 +21,8 @@ def pagos_del_dia():
                 FROM pagos p
                 JOIN turnos t ON p.id_turno = t.id_turno
                 JOIN clientes c ON t.id_cliente = c.id_cliente
-                WHERE CAST(p.fecha_pago AS DATE) = ?
+                WHERE CAST(p.fecha_pago AS DATE) = ? 
+                AND p.metodo_pago != 'Pendiente'
                 ORDER BY p.fecha_pago ASC
             """
             cursor.execute(query, (fecha_actual,))
@@ -46,3 +47,4 @@ def pagos_del_dia():
         finally:
             conn.close()
     return jsonify({"error": "Error de conexión a la base de datos."}), 500
+
