@@ -1,6 +1,6 @@
 # routes/panelEmpleado.py
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from flask_login import login_required
 from database import get_db_connection
 from datetime import datetime
@@ -48,3 +48,64 @@ def pagos_del_dia():
             conn.close()
     return jsonify({"error": "Error de conexión a la base de datos."}), 500
 
+@panel_empleado_bp.route('/profesionales', methods=['GET'])
+@login_required
+def listar_profesionales():
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id_profesional, nombre, apellido FROM profesionales ORDER BY nombre ASC")
+        profesionales = cursor.fetchall()
+        profesionales_list = [dict(zip([column[0] for column in cursor.description], row)) for row in profesionales]
+        conn.close()
+        return jsonify(profesionales_list), 200
+    return jsonify({'error': 'Error de conexión a la base de datos'}), 500
+
+@panel_empleado_bp.route('/clientes-profesional', methods=['GET'])
+@login_required
+def clientes_por_profesional():
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            # Obtener los parámetros 'profesional_id' y 'fecha'
+            profesional_id = request.args.get('profesional_id')
+            fecha_str = request.args.get('fecha')
+            if not profesional_id or not fecha_str:
+                return jsonify({'error': 'Parámetros profesional_id y fecha son requeridos.'}), 400
+
+            fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+
+            # Verificar que el profesional exista
+            cursor.execute("SELECT COUNT(*) FROM profesionales WHERE id_profesional = ?", (profesional_id,))
+            exists = cursor.fetchone()[0]
+            if not exists:
+                return jsonify({'error': 'Profesional no encontrado.'}), 404
+
+            query = """
+                SELECT p.nombre AS profesional, t.fecha, t.hora, c.nombre, c.apellido
+                FROM turnos t
+                JOIN profesionales p ON t.id_profesional = p.id_profesional
+                JOIN clientes c ON t.id_cliente = c.id_cliente
+                JOIN pagos pmt ON pmt.id_turno = t.id_turno
+                WHERE p.id_profesional = ? AND t.fecha = ? AND pmt.metodo_pago != 'Pendiente'
+                ORDER BY t.hora ASC
+            """
+            cursor.execute(query, (profesional_id, fecha,))
+            registros = cursor.fetchall()
+            registros_list = []
+
+            for row in registros:
+                registro_dict = dict(zip([column[0] for column in cursor.description], row))
+                # Convertir 'fecha' y 'hora' a formatos serializables
+                registro_dict['fecha'] = registro_dict['fecha'].strftime('%Y-%m-%d')
+                registro_dict['hora'] = registro_dict['hora'].strftime('%H:%M')
+                registros_list.append(registro_dict)
+
+            conn.close()
+            return jsonify(registros_list), 200
+        except Exception as e:
+            conn.close()
+            print(f"Error en clientes_por_profesional: {e}")  # Para depuración
+            return jsonify({'error': 'Error al obtener los clientes por profesional'}), 500
+    return jsonify({'error': 'Error de conexión a la base de datos'}), 500

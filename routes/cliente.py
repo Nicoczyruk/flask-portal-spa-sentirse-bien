@@ -103,12 +103,15 @@ def obtener_reservas():
                 return jsonify({'error': 'Cliente no encontrado'}), 404
             id_cliente = cliente_result.id_cliente
 
+            # Modificar la consulta para excluir los turnos cancelados
             query = """
-                SELECT s.nombre AS servicio, t.fecha, t.hora, t.estado
+                SELECT t.id_turno, s.nombre AS servicio, t.fecha, t.hora, t.estado,
+                       CASE WHEN p.metodo_pago = 'Pendiente' THEN 'Pendiente' ELSE 'Pagado' END AS pago_estado
                 FROM turnos t
                 INNER JOIN turno_servicio ts ON t.id_turno = ts.id_turno
                 INNER JOIN servicios s ON ts.id_servicio = s.id_servicio
-                WHERE t.id_cliente = ?
+                LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                WHERE t.id_cliente = ? AND t.estado != 'Cancelado'
                 ORDER BY t.fecha DESC, t.hora DESC
             """
             cursor.execute(query, (id_cliente,))
@@ -117,17 +120,114 @@ def obtener_reservas():
             reservas = []
             for row in results:
                 reservas.append({
+                    'id_turno': row.id_turno,
                     'servicio': row.servicio,
                     'fecha': row.fecha.strftime('%Y-%m-%d'),
                     'hora': str(row.hora),
-                    'estado': row.estado
+                    'estado': row.estado,
+                    'pago': row.pago_estado
                 })
             return jsonify({'reservas': reservas}), 200
         except Exception as e:
             conn.close()
+            print(f"Error en obtener_reservas: {e}")
             return jsonify({'error': 'Error al obtener las reservas'}), 500
     else:
         return jsonify({'error': 'Error al conectar con la base de datos'}), 500
+
+@cliente_bp.route('/cancelar-reserva/<int:id_turno>', methods=['POST'])
+@login_required
+def cancelar_reserva(id_turno):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            # Verificar que el turno pertenece al cliente actual
+            query_verificar_turno = """
+                SELECT id_turno FROM turnos WHERE id_turno = ? AND id_cliente = ?
+            """
+            cursor.execute(query_verificar_turno, (id_turno, current_user.id_cliente))
+            turno_result = cursor.fetchone()
+            if not turno_result:
+                return jsonify({'error': 'Turno no encontrado o no pertenece al cliente.'}), 404
+
+            # Actualizar el estado del turno a 'Cancelado'
+            query_cancelar_turno = "UPDATE turnos SET estado = 'Cancelado' WHERE id_turno = ?"
+            cursor.execute(query_cancelar_turno, (id_turno,))
+
+            conn.commit()
+            conn.close()
+            return jsonify({'message': 'Turno cancelado exitosamente.'}), 200
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"Error en cancelar_reserva: {e}")
+            return jsonify({'error': 'Error al cancelar el turno.'}), 500
+    else:
+        return jsonify({'error': 'Error al conectar con la base de datos.'}), 500
+
+@cliente_bp.route('/modificar-reserva/<int:id_turno>', methods=['POST'])
+@login_required
+def modificar_reserva(id_turno):
+    data = request.get_json()
+    nueva_fecha = data.get('fecha')
+    nueva_hora = data.get('hora')
+    nuevo_id_servicio = data.get('id_servicio')
+
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            # Verificar que el turno pertenece al cliente actual
+            query_verificar_turno = """
+                SELECT t.id_turno, p.metodo_pago
+                FROM turnos t
+                LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                WHERE t.id_turno = ? AND t.id_cliente = ?
+            """
+            cursor.execute(query_verificar_turno, (id_turno, current_user.id_cliente))
+            turno_result = cursor.fetchone()
+            if not turno_result:
+                return jsonify({'error': 'Turno no encontrado o no pertenece al cliente.'}), 404
+
+            # Verificar que el turno no esté pagado
+            metodo_pago = turno_result.metodo_pago
+            if metodo_pago and metodo_pago != 'Pendiente':
+                return jsonify({'error': 'No se puede modificar un turno pagado.'}), 400
+
+            # Construir la consulta de actualización dinámicamente
+            campos_a_actualizar = []
+            valores = []
+
+            if nueva_fecha:
+                campos_a_actualizar.append("fecha = ?")
+                valores.append(nueva_fecha)
+
+            if nueva_hora:
+                campos_a_actualizar.append("hora = ?")
+                valores.append(nueva_hora)
+
+            if campos_a_actualizar:
+                # Actualizar fecha y hora en la tabla turnos
+                query_modificar_turno = f"UPDATE turnos SET {', '.join(campos_a_actualizar)} WHERE id_turno = ?"
+                valores.append(id_turno)
+                cursor.execute(query_modificar_turno, valores)
+
+            if nuevo_id_servicio:
+                # Actualizar el servicio en la tabla turno_servicio
+                query_modificar_servicio = "UPDATE turno_servicio SET id_servicio = ? WHERE id_turno = ?"
+                cursor.execute(query_modificar_servicio, (nuevo_id_servicio, id_turno))
+
+            conn.commit()
+            conn.close()
+            return jsonify({'message': 'Turno modificado exitosamente.'}), 200
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            print(f"Error en modificar_reserva: {e}")
+            return jsonify({'error': 'Error al modificar el turno.'}), 500
+    else:
+        return jsonify({'error': 'Error al conectar con la base de datos.'}), 500
 
 # Obtener lista de pagos pendientes
 @cliente_bp.route('/pagos-pendientes', methods=['GET'])
@@ -481,3 +581,61 @@ def pagar_todos():
 
     else:
         return jsonify({'error': 'Error al conectar con la base de datos'}), 500
+
+@cliente_bp.route('/servicios', methods=['GET'])
+@login_required
+def obtener_servicios():
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            query = "SELECT id_servicio, nombre, duracion FROM servicios"
+            cursor.execute(query)
+            servicios = cursor.fetchall()
+            conn.close()
+            servicios_list = []
+            for servicio in servicios:
+                servicios_list.append({
+                    'id_servicio': servicio.id_servicio,
+                    'nombre': servicio.nombre,
+                    'duracion': servicio.duracion
+                })
+            return jsonify({'servicios': servicios_list}), 200
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': 'Error al obtener los servicios'}), 500
+    else:
+        return jsonify({'error': 'Error al conectar con la base de datos'}), 500
+    
+@cliente_bp.route('/reserva/<int:id_turno>', methods=['GET'])
+@login_required
+def obtener_reserva(id_turno):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            query = """
+                SELECT t.fecha, t.hora, ts.id_servicio, s.nombre AS nombre_servicio
+                FROM turnos t
+                INNER JOIN turno_servicio ts ON t.id_turno = ts.id_turno
+                INNER JOIN servicios s ON ts.id_servicio = s.id_servicio
+                WHERE t.id_turno = ? AND t.id_cliente = ?
+            """
+            cursor.execute(query, (id_turno, current_user.id_cliente))
+            reserva = cursor.fetchone()
+            conn.close()
+            if reserva:
+                return jsonify({
+                    'fecha': reserva.fecha.strftime('%Y-%m-%d'),
+                    'hora': reserva.hora.strftime('%H:%M'),
+                    'id_servicio': reserva.id_servicio,
+                    'nombre_servicio': reserva.nombre_servicio
+                }), 200
+            else:
+                return jsonify({'error': 'Reserva no encontrada.'}), 404
+        except Exception as e:
+            conn.close()
+            print(f"Error en obtener_reserva: {e}")
+            return jsonify({'error': 'Error al obtener la reserva.'}), 500
+    else:
+        return jsonify({'error': 'Error al conectar con la base de datos.'}), 500
