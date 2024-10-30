@@ -64,5 +64,9 @@ def serve_react_app(path):
         # De lo contrario, se sirve index.html
         return send_from_directory(app.static_folder, 'index.html')
 
+@app.route('/service-worker.js')
+def serve_service_worker():
+    return send_from_directory(app.static_folder, 'service-worker.js')
+
 if __name__ == '__main__':
     app.run(debug=True)
