@@ -141,68 +141,72 @@ def historial_reservas():
     if conn:
         cursor = conn.cursor()
 
-        # Eliminar dependencias de reservas no pagadas antes de 48 horas
-        query_eliminar_turno_servicio = """
-            DELETE FROM turno_servicio 
-            WHERE id_turno IN (
-                SELECT t.id_turno
-                FROM turnos t
-                LEFT JOIN pagos p ON t.id_turno = p.id_turno
-                WHERE DATEADD(SECOND, 
-                            DATEDIFF(SECOND, 0, t.hora), 
-                            CAST(t.fecha AS DATETIME)
-                    ) < DATEADD(HOUR, -48, GETDATE())
-                AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
-            )
-        """
-        cursor.execute(query_eliminar_turno_servicio)
+        # Parámetro de referencia de 48 horas para la comparación
+        cutoff_date = "DATEADD(HOUR, -48, GETDATE())"
 
-        query_eliminar_pagos = """
-            DELETE FROM pagos 
-            WHERE id_turno IN (
-                SELECT t.id_turno
-                FROM turnos t
-                LEFT JOIN pagos p ON t.id_turno = p.id_turno
-                WHERE DATEADD(SECOND, 
-                            DATEDIFF(SECOND, 0, t.hora), 
-                            CAST(t.fecha AS DATETIME)
-                    ) < DATEADD(HOUR, -48, GETDATE())
-                AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
-            )
-        """
-        cursor.execute(query_eliminar_pagos)
+        # Eliminar dependencias de turnos no pagados y anteriores a 48 horas
+        try:
+            # Eliminar de turno_servicio
+            query_eliminar_turno_servicio = f"""
+                DELETE FROM turno_servicio
+                WHERE id_turno IN (
+                    SELECT t.id_turno
+                    FROM turnos t
+                    LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                    WHERE DATEADD(SECOND, DATEDIFF(SECOND, 0, t.hora), CAST(t.fecha AS DATETIME)) < {cutoff_date}
+                    AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
+                )
+            """
+            cursor.execute(query_eliminar_turno_servicio)
 
-        query_eliminar_turnos = """
-            DELETE FROM turnos 
-            WHERE id_turno IN (
-                SELECT t.id_turno
-                FROM turnos t
-                LEFT JOIN pagos p ON t.id_turno = p.id_turno
-                WHERE DATEADD(SECOND, 
-                            DATEDIFF(SECOND, 0, t.hora), 
-                            CAST(t.fecha AS DATETIME)
-                    ) < DATEADD(HOUR, -48, GETDATE())
-                AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
-            )
-        """
-        cursor.execute(query_eliminar_turnos)
+            # Eliminar de pagos
+            query_eliminar_pagos = f"""
+                DELETE FROM pagos
+                WHERE id_turno IN (
+                    SELECT t.id_turno
+                    FROM turnos t
+                    LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                    WHERE DATEADD(SECOND, DATEDIFF(SECOND, 0, t.hora), CAST(t.fecha AS DATETIME)) < {cutoff_date}
+                    AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
+                )
+            """
+            cursor.execute(query_eliminar_pagos)
 
-        # **Nueva funcionalidad:** Actualizar turnos pagados cuya fecha ya pasó
-        query_actualizar_turnos_realizados = """
-            UPDATE turnos
-            SET estado = 'Realizado'
-            WHERE id_turno IN (
-                SELECT t.id_turno
-                FROM turnos t
-                JOIN pagos p ON t.id_turno = p.id_turno
-                WHERE t.id_cliente = ?
-                AND p.metodo_pago != 'Pendiente'
-                AND CAST(t.fecha AS DATETIME) < GETDATE()
-            )
-        """
-        cursor.execute(query_actualizar_turnos_realizados, (current_user.id_cliente,))
+            # Eliminar de turnos
+            query_eliminar_turnos = f"""
+                DELETE FROM turnos
+                WHERE id_turno IN (
+                    SELECT t.id_turno
+                    FROM turnos t
+                    LEFT JOIN pagos p ON t.id_turno = p.id_turno
+                    WHERE DATEADD(SECOND, DATEDIFF(SECOND, 0, t.hora), CAST(t.fecha AS DATETIME)) < {cutoff_date}
+                    AND (p.metodo_pago IS NULL OR p.metodo_pago = 'Pendiente')
+                )
+            """
+            cursor.execute(query_eliminar_turnos)
 
-        conn.commit()
+            # Actualizar turnos pagados cuya fecha ya pasó
+            query_actualizar_turnos_realizados = """
+                UPDATE turnos
+                SET estado = 'Realizado'
+                WHERE id_turno IN (
+                    SELECT t.id_turno
+                    FROM turnos t
+                    JOIN pagos p ON t.id_turno = p.id_turno
+                    WHERE t.id_cliente = ?
+                    AND p.metodo_pago != 'Pendiente'
+                    AND CAST(t.fecha AS DATETIME) < GETDATE()
+                )
+            """
+            cursor.execute(query_actualizar_turnos_realizados, (current_user.id_cliente,))
+            
+            # Confirmar cambios
+            conn.commit()
+
+        except Exception as e:
+            conn.rollback()
+            print(f"Error en eliminación de reservas: {e}")
+            return jsonify({'error': 'Error al procesar el historial de reservas.'}), 500
 
         # Consulta del historial actualizado
         query_historial = """

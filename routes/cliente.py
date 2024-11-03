@@ -151,10 +151,19 @@ def cancelar_reserva(id_turno):
             if not turno_result:
                 return jsonify({'error': 'Turno no encontrado o no pertenece al cliente.'}), 404
 
+            # Eliminar registros relacionados en turno_servicio
+            query_eliminar_turno_servicio = "DELETE FROM turno_servicio WHERE id_turno = ?"
+            cursor.execute(query_eliminar_turno_servicio, (id_turno,))
+
+            # Eliminar registros relacionados en pagos
+            query_eliminar_pagos = "DELETE FROM pagos WHERE id_turno = ?"
+            cursor.execute(query_eliminar_pagos, (id_turno,))
+
             # Actualizar el estado del turno a 'Cancelado'
             query_cancelar_turno = "UPDATE turnos SET estado = 'Cancelado' WHERE id_turno = ?"
             cursor.execute(query_cancelar_turno, (id_turno,))
 
+            # Confirmar cambios
             conn.commit()
             conn.close()
             return jsonify({'message': 'Turno cancelado exitosamente.'}), 200
@@ -172,7 +181,6 @@ def modificar_reserva(id_turno):
     data = request.get_json()
     nueva_fecha = data.get('fecha')
     nueva_hora = data.get('hora')
-    nuevo_id_servicio = data.get('id_servicio')
 
     conn = get_db_connection()
     if conn:
@@ -195,7 +203,7 @@ def modificar_reserva(id_turno):
             if metodo_pago and metodo_pago != 'Pendiente':
                 return jsonify({'error': 'No se puede modificar un turno pagado.'}), 400
 
-            # Construir la consulta de actualización dinámicamente
+            # Construir la consulta de actualización solo para fecha y hora
             campos_a_actualizar = []
             valores = []
 
@@ -213,11 +221,6 @@ def modificar_reserva(id_turno):
                 valores.append(id_turno)
                 cursor.execute(query_modificar_turno, valores)
 
-            if nuevo_id_servicio:
-                # Actualizar el servicio en la tabla turno_servicio
-                query_modificar_servicio = "UPDATE turno_servicio SET id_servicio = ? WHERE id_turno = ?"
-                cursor.execute(query_modificar_servicio, (nuevo_id_servicio, id_turno))
-
             conn.commit()
             conn.close()
             return jsonify({'message': 'Turno modificado exitosamente.'}), 200
@@ -228,6 +231,7 @@ def modificar_reserva(id_turno):
             return jsonify({'error': 'Error al modificar el turno.'}), 500
     else:
         return jsonify({'error': 'Error al conectar con la base de datos.'}), 500
+
 
 # Obtener lista de pagos pendientes
 @cliente_bp.route('/pagos-pendientes', methods=['GET'])
