@@ -291,6 +291,7 @@ def realizar_pago(id_pago):
             # Obtener los datos enviados desde el frontend
             data = request.get_json()
             tipo_tarjeta = data.get('tipo', '').lower()  # 'credito' o 'debito'
+            apply_discount = data.get('applyDiscount', False)  # Recibir si se aplica descuento
 
             # Validar el tipo de tarjeta
             if tipo_tarjeta not in ['credito', 'debito']:
@@ -299,25 +300,37 @@ def realizar_pago(id_pago):
             # Mapear el tipo de tarjeta a la descripción completa
             metodo_pago = 'Tarjeta de Crédito' if tipo_tarjeta == 'credito' else 'Tarjeta de Débito'
 
-            # Actualizar el método de pago en la tabla pagos
-            query = "UPDATE pagos SET metodo_pago = ? WHERE id_pago = ?"
-            cursor.execute(query, (metodo_pago, id_pago,))
-
-            # Obtener el id_cliente y monto para generar la factura
-            query_get_pago = "SELECT t.id_cliente, p.monto FROM pagos p JOIN turnos t ON p.id_turno = t.id_turno WHERE p.id_pago = ?"
+            # Obtener el monto original del pago
+            query_get_pago = """
+                SELECT p.monto, t.id_cliente
+                FROM pagos p
+                JOIN turnos t ON p.id_turno = t.id_turno
+                WHERE p.id_pago = ?
+            """
             cursor.execute(query_get_pago, (id_pago,))
             pago_result = cursor.fetchone()
             if not pago_result:
                 conn.rollback()
                 return jsonify({'error': 'Pago no encontrado'}), 404
-            id_cliente, monto = pago_result
+            monto_original, id_cliente = pago_result
 
-            # Insertar factura
+            # Convertir monto a Decimal para precisión en cálculos monetarios
+            monto = Decimal(monto_original)
+
+            # Aplicar descuento si corresponde
+            if apply_discount:
+                monto = monto * Decimal('0.9')  # Aplicar 10% de descuento
+
+            # Actualizar el método de pago y el monto en la tabla pagos
+            query_actualizar_pago = "UPDATE pagos SET metodo_pago = ?, monto = ? WHERE id_pago = ?"
+            cursor.execute(query_actualizar_pago, (metodo_pago, float(monto), id_pago))
+
+            # Insertar factura con el monto con descuento
             query_insertar_factura = """
                 INSERT INTO facturas (id_cliente, id_pago, total)
                 VALUES (?, ?, ?)
             """
-            cursor.execute(query_insertar_factura, (id_cliente, id_pago, monto))
+            cursor.execute(query_insertar_factura, (id_cliente, id_pago, float(monto)))
 
             conn.commit()
             conn.close()
